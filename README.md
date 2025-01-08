@@ -26,6 +26,10 @@ Contributions are welcome! Please feel free to submit pull requests with:
 - Best practices from real-world usage
 - Improved formatting for LLM comprehension
 
+## Next Steps
+
+Ideally, I want to make this a complete resource and then package it as an MCP server itself. Need an extra 5 minutes in my day to get it done! =)
+
 ## License
 
 MIT
