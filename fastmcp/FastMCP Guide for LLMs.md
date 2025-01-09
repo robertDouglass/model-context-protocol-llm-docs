@@ -274,6 +274,80 @@ def get_monthly_report(
     return load_report(year, month)
 ```
 
+## Prompts
+
+Prompts in FastMCP allow you to create structured interactions with LLMs. Here's how to implement them correctly:
+
+```python
+@mcp.prompt(
+    name="analyze-data",
+    description="Analyze the provided dataset and provide insights"
+)
+def analyze_data(ctx: Context, parameters: dict) -> dict:
+    """
+    Process data analysis prompt
+    
+    Args:
+        ctx: MCP context
+        parameters: Prompt parameters with data and configuration
+    
+    Returns:
+        Dictionary with markdown-formatted analysis
+    """
+    # Extract parameters with defaults
+    data = parameters.get('data', [])
+    threshold = parameters.get('threshold', 100)
+    
+    # Process data
+    results = process_data(data, threshold)
+    
+    return {
+        "type": "markdown",
+        "content": f"""## Analysis Results
+
+{results}
+"""
+    }
+```
+
+Key points about prompts:
+- Keep decorator simple with just `name` and `description`
+- Accept `ctx` and `parameters` arguments
+- Return a dict with `type` and `content` keys
+- Use markdown formatting for structured output
+- Handle parameter defaults within the function
+
+Example of a more complex prompt:
+
+```python
+@mcp.prompt(
+    name="analyze-regions",
+    description="Analyze regions for carbon intensity discounts"
+)
+def analyze_regions(ctx: Context, parameters: dict) -> dict:
+    """Process region analysis prompt"""
+    # Get parameters with defaults
+    threshold = parameters.get('threshold', 100)
+    discount = parameters.get('discount', 3)
+    
+    # Find qualifying regions
+    qualifying = [
+        region.format_details()
+        for region in REGIONS
+        if region.carbon_intensity < threshold
+    ]
+
+    return {
+        "type": "markdown",
+        "content": f"""## Qualifying Regions for {discount}% Discount
+
+The following regions have carbon intensity below {threshold} gCO2eq/kWh:
+
+{chr(10).join(f"* {region}" for region in qualifying)}
+"""
+    }
+```
+
 ## State and Session Management
 
 ### Session Storage
@@ -689,5 +763,55 @@ The solution works by:
 4. Returning the final result
 
 This approach maintains FastMCP's event loop while ensuring async operations complete properly.
+
+## Troubleshooting Common Issues
+
+### Server Connection Issues
+
+If you encounter "Could not attach server" or similar connection issues:
+
+1. Test from command line first
+2. Check Python version compatibility (use 3.9-3.12)
+3. Verify imports (especially `Context` from `fastmcp`)
+4. Remove any custom logging setup
+5. Ensure prompt structure matches examples above
+
+### Logging Issues
+
+If you see logging-related errors:
+
+1. Remove any custom logging configuration
+2. Don't create custom loggers for your server
+3. Let FastMCP handle all logging internally
+4. Use simple print statements for debugging if needed
+
+### Prompt Issues
+
+Common prompt-related problems:
+
+1. Including `template` in decorator (not supported)
+2. Missing `parameters` argument in function
+3. Wrong return type (must be dict with `type` and `content`)
+4. Custom logging in prompt handlers
+
+## Best Practices
+
+1. Development Workflow:
+   - Always test from command line first
+   - Use Python 3.11 for best compatibility
+   - Keep prompt decorators simple
+   - Let FastMCP handle logging
+
+2. Code Structure:
+   - Import Context from fastmcp directly
+   - Keep prompts focused and single-purpose
+   - Handle parameter defaults in function body
+   - Use markdown for structured output
+
+3. Error Handling:
+   - Keep server startup code simple
+   - Use try/except blocks appropriately
+   - Print errors during development
+   - Let FastMCP handle logging in production
 
 
