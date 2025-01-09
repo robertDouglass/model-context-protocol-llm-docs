@@ -1,236 +1,571 @@
-# FastMCP Python SDK Guide
+# Ultimate Python Model Context Protocol (MCP) Guide
 
-FastMCP is a framework for creating Model Context Protocol (MCP) servers in Python. This guide covers the key concepts and patterns for developing with FastMCP based on the official examples.
+## Overview
 
-## Basic Concepts
+The Model Context Protocol (MCP) provides a standardized interface for LLM applications to interact with external data and functionality. FastMCP is the Python implementation of this protocol, offering a high-level, intuitive interface for developers.
+
+## Installation and Setup
+
+```bash
+# Using uv (recommended)
+uv add "mcp[cli]"
+
+# Using pip
+pip install mcp
+
+# Optional: Install with all extras
+pip install "mcp[cli,dev,test]"
+```
+
+## Core Components
 
 ### Server Creation
 
 ```python
 from mcp.server.fastmcp import FastMCP
 
-# Create an MCP server with a name
-mcp = FastMCP("Demo")
+# Basic server
+server = FastMCP("MyApp")
+
+# Server with dependencies
+server = FastMCP(
+    "AnalyticsApp",
+    dependencies=[
+        "pydantic>=2.0",
+        "pandas",
+        "numpy",
+        "scikit-learn",
+        "asyncpg",
+    ]
+)
 ```
 
-### Tools and Resources
+### Type System and Validation
 
-FastMCP supports two main types of endpoints:
-1. Tools - Functions that perform actions
-2. Resources - URI-based data access points
-
-## Defining Tools
-
-### Basic Tool Definition
-
-```python
-@mcp.tool()
-def add(a: int, b: int) -> int:
-    """Add two numbers"""
-    return a + b
-```
-
-### Tools with Parameter Descriptions
-
-Use Pydantic's Field for adding parameter descriptions and validation:
-
-```python
-from pydantic import Field
-
-@mcp.tool()
-def greet_user(
-    name: str = Field(description="The name of the person to greet"),
-    title: str = Field(description="Optional title like Mr/Ms/Dr", default=""),
-    times: int = Field(description="Number of times to repeat greeting", default=1),
-) -> str:
-    """Greet a user with optional title and repetition"""
-    greeting = f"Hello {title + ' ' if title else ''}{name}!"
-    return "\n".join([greeting] * times)
-```
-
-## Complex Input Types
-
-### Using Pydantic Models
-
-FastMCP integrates seamlessly with Pydantic for complex data validation:
+FastMCP uses Pydantic for type validation and schema generation:
 
 ```python
 from typing import Annotated
 from pydantic import BaseModel, Field
 
-class ShrimpTank(BaseModel):
-    class Shrimp(BaseModel):
-        name: Annotated[str, Field(max_length=10)]
-    
-    shrimp: list[Shrimp]
+# Complex type definition
+class UserProfile(BaseModel):
+    name: str = Field(..., description="User's full name")
+    age: Annotated[int, Field(ge=0, lt=150)]
+    email: Annotated[str, Field(pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")]
+    preferences: dict[str, bool] = Field(
+        default_factory=dict,
+        description="User preferences"
+    )
 
-@mcp.tool()
-def name_shrimp(
-    tank: ShrimpTank,
-    extra_names: Annotated[list[str], Field(max_length=10)],
-) -> list[str]:
-    """List all shrimp names in the tank"""
-    return [shrimp.name for shrimp in tank.shrimp] + extra_names
+# Tool using complex type
+@server.tool()
+def update_profile(
+    profile: UserProfile,
+    notify: bool = Field(
+        default=True,
+        description="Send notification email"
+    )
+) -> dict:
+    """Update a user's profile
+    
+    Args:
+        profile: Complete user profile data
+        notify: Whether to send notification
+    
+    Returns:
+        Updated profile data
+    """
+    return profile.model_dump()
 ```
 
-## Defining Resources
+## Tools
+
+Tools are functions that can perform actions or computations. They support both synchronous and asynchronous operations.
+
+### Basic Tools
+
+```python
+@server.tool()
+def calculate(
+    operation: Annotated[str, Field(
+        description="Operation to perform",
+        pattern="^(add|subtract|multiply|divide)$"
+    )],
+    a: float = Field(..., description="First number"),
+    b: float = Field(..., description="Second number")
+) -> float:
+    """Perform basic arithmetic
+    
+    Args:
+        operation: Mathematical operation
+        a: First operand
+        b: Second operand
+    
+    Returns:
+        Result of operation
+    
+    Raises:
+        ValueError: For invalid operations
+        ZeroDivisionError: When dividing by zero
+    """
+    ops = {
+        "add": lambda x, y: x + y,
+        "subtract": lambda x, y: x - y,
+        "multiply": lambda x, y: x * y,
+        "divide": lambda x, y: x / y
+    }
+    
+    if operation not in ops:
+        raise ValueError(f"Invalid operation: {operation}")
+        
+    return ops[operation](a, b)
+```
+
+### Async Tools with Progress
+
+```python
+from mcp.server.fastmcp import Context
+
+@server.tool()
+async def process_dataset(
+    dataset_uri: str,
+    batch_size: int = Field(
+        default=1000,
+        ge=100,
+        le=10000,
+        description="Number of records per batch"
+    ),
+    ctx: Context
+) -> dict:
+    """Process a large dataset with progress tracking
+    
+    Args:
+        dataset_uri: URI of dataset to process
+        batch_size: Records per batch
+        ctx: MCP context
+    """
+    total_records = await count_records(dataset_uri)
+    processed = 0
+    results = []
+
+    async for batch in load_batches(dataset_uri, batch_size):
+        # Process batch
+        batch_result = await process_batch(batch)
+        results.append(batch_result)
+        
+        # Update progress
+        processed += len(batch)
+        await ctx.report_progress(
+            current=processed,
+            total=total_records,
+            message=f"Processed {processed}/{total_records} records"
+        )
+        
+        # Log information
+        ctx.info(f"Batch {len(results)} complete")
+        
+    return {
+        "total_processed": processed,
+        "batches": len(results),
+        "summary": aggregate_results(results)
+    }
+```
+
+### Tools with Complex Types
+
+```python
+class DatabaseConfig(BaseModel):
+    host: str = Field(..., description="Database host")
+    port: int = Field(default=5432, ge=1, le=65535)
+    database: str
+    username: str
+    password: str = Field(..., exclude=True)  # Sensitive field
+    
+class QueryConfig(BaseModel):
+    table: str
+    columns: list[str] = Field(default_factory=list)
+    where: dict[str, str] = Field(default_factory=dict)
+    limit: int = Field(default=100, ge=1, le=1000)
+
+@server.tool()
+async def query_database(
+    db_config: DatabaseConfig,
+    query_config: QueryConfig,
+    ctx: Context
+) -> list[dict]:
+    """Execute a database query
+    
+    Args:
+        db_config: Database connection details
+        query_config: Query parameters
+        ctx: MCP context
+    
+    Returns:
+        Query results
+    """
+    try:
+        async with connect_db(db_config) as conn:
+            results = await execute_query(conn, query_config)
+            return results
+    except Exception as e:
+        ctx.error(f"Database error: {str(e)}")
+        raise
+```
+
+## Resources
+
+Resources provide read-only access to data through URI-like patterns.
+
+### Static Resources
+
+```python
+@server.resource("config://app")
+def get_app_config() -> dict:
+    """Get application configuration"""
+    return {
+        "version": "1.0.0",
+        "environment": "production",
+        "features": {
+            "beta": True,
+            "experimental": False
+        }
+    }
+```
 
 ### Dynamic Resources
 
-Resources use URI templates for dynamic access:
+```python
+@server.resource("users://{user_id}/{section}")
+async def get_user_section(
+    user_id: str,
+    section: Annotated[str, Field(pattern="^(profile|settings|history)$")]
+) -> dict:
+    """Get a section of user data
+    
+    Args:
+        user_id: User identifier
+        section: Data section to retrieve
+    """
+    async with get_user_db() as db:
+        data = await db.fetch_one(
+            "SELECT * FROM user_data WHERE id = $1 AND section = $2",
+            user_id,
+            section
+        )
+        return dict(data) if data else None
+```
+
+### Resource Collections
 
 ```python
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Get a personalized greeting"""
-    return f"Hello, {name}!"
+@server.resource("reports://monthly/{year}/{month}")
+def get_monthly_report(
+    year: Annotated[int, Field(ge=2000, le=2100)],
+    month: Annotated[int, Field(ge=1, le=12)]
+) -> dict:
+    """Get monthly report data
+    
+    Args:
+        year: Report year
+        month: Report month (1-12)
+    """
+    return load_report(year, month)
+```
+
+## State and Session Management
+
+### Session Storage
+
+```python
+from pathlib import Path
+import json
+
+class SessionManager:
+    def __init__(self, base_dir: Path):
+        self.base_dir = base_dir
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+    
+    def get_session_path(self, session_id: str) -> Path:
+        return self.base_dir / f"{session_id}.json"
+    
+    def load(self, session_id: str) -> dict:
+        path = self.get_session_path(session_id)
+        if path.exists():
+            return json.loads(path.read_text())
+        return {}
+    
+    def save(self, session_id: str, data: dict):
+        path = self.get_session_path(session_id)
+        path.write_text(json.dumps(data))
+
+@server.tool()
+async def stateful_operation(
+    data: dict,
+    ctx: Context
+) -> dict:
+    """Operation that maintains state
+    
+    Args:
+        data: New data to process
+        ctx: MCP context
+    """
+    # Get existing state
+    state = ctx.session.get("operation_state", {})
+    
+    # Update state
+    state.update(data)
+    
+    # Store updated state
+    ctx.session["operation_state"] = state
+    
+    return state
 ```
 
 ## Advanced Features
 
-### Async Support
-
-FastMCP supports async functions for both tools and resources:
+### Custom Transports
 
 ```python
-@mcp.tool()
-async def async_operation():
-    result = await some_async_function()
-    return result
+from mcp.server.lowlevel import Server
+from mcp.server.models import InitializationOptions
+import mcp.server.stdio
+
+async def run_custom_server():
+    server = Server("custom-server")
+    
+    # Configure server...
+    
+    async with mcp.server.stdio.stdio_server() as (read, write):
+        await server.run(
+            read_stream=read,
+            write_stream=write,
+            initialization_options=InitializationOptions(
+                server_name="custom",
+                server_version="1.0.0",
+                capabilities=server.get_capabilities()
+            )
+        )
 ```
 
-### Dependency Management
-
-Specify external dependencies for your MCP server:
+### Error Recovery
 
 ```python
-mcp = FastMCP(
-    "server_name",
-    dependencies=[
-        "pydantic-ai-slim[openai]",
-        "asyncpg",
-        "numpy",
-    ],
-)
+@server.tool()
+async def resilient_operation(
+    retries: int = Field(default=3, ge=1, le=5),
+    ctx: Context
+) -> dict:
+    """Operation with retry logic
+    
+    Args:
+        retries: Number of retry attempts
+        ctx: MCP context
+    """
+    for attempt in range(retries):
+        try:
+            result = await perform_operation()
+            return result
+        except TransientError as e:
+            ctx.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                raise
 ```
 
-### State Management
-
-FastMCP can maintain state across requests using file system or databases:
+### Progress Monitoring
 
 ```python
-from pathlib import Path
-
-PROFILE_DIR = (
-    Path.home() / ".fastmcp" / os.environ.get("USER", "anon") / "state"
-).resolve()
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+@server.tool()
+async def multi_stage_operation(ctx: Context) -> dict:
+    """Operation with multiple progress stages"""
+    stages = [
+        ("Initialization", 10),
+        ("Data Processing", 50),
+        ("Validation", 20),
+        ("Finalization", 20)
+    ]
+    
+    current_progress = 0
+    results = {}
+    
+    for stage_name, stage_weight in stages:
+        ctx.info(f"Starting {stage_name}")
+        
+        # Process stage
+        stage_result = await process_stage(stage_name)
+        results[stage_name] = stage_result
+        
+        # Update progress
+        current_progress += stage_weight
+        await ctx.report_progress(
+            current=current_progress,
+            total=100,
+            message=f"Completed {stage_name}"
+        )
+    
+    return results
 ```
 
-### Error Handling
+## Testing
 
-Use Python's standard exception handling or Pydantic validation:
+### Unit Tests
 
 ```python
-@mcp.tool()
-def safe_operation(input: str) -> str:
-    try:
-        result = process_input(input)
-        return result
-    except ValueError as e:
-        return f"Error processing input: {str(e)}"
+import pytest
+from mcp.server.fastmcp import FastMCP
+
+@pytest.fixture
+def server():
+    return FastMCP("TestServer")
+
+@pytest.fixture
+def complex_server():
+    server = FastMCP(
+        "ComplexServer",
+        dependencies=["pandas", "numpy"]
+    )
+    
+    # Add test tools
+    @server.tool()
+    def test_tool(x: int) -> int:
+        return x * 2
+    
+    return server
+
+def test_basic_tool(server):
+    @server.tool()
+    def add(a: int, b: int) -> int:
+        return a + b
+    
+    result = add(2, 3)
+    assert result == 5
+
+@pytest.mark.asyncio
+async def test_async_tool(server):
+    @server.tool()
+    async def process(data: str) -> str:
+        return f"Processed: {data}"
+    
+    result = await process("test")
+    assert result == "Processed: test"
+```
+
+### Integration Tests
+
+```python
+@pytest.mark.integration
+async def test_database_integration(complex_server):
+    @complex_server.tool()
+    async def db_operation(query: str) -> list:
+        async with get_test_db() as conn:
+            return await conn.fetch(query)
+    
+    result = await db_operation("SELECT * FROM test_table")
+    assert len(result) > 0
+```
+
+## Security Considerations
+
+1. Input Validation
+```python
+@server.tool()
+def secure_operation(
+    filename: Annotated[str, Field(pattern=r'^[\w\-. ]+$')],
+    content: str
+) -> bool:
+    """Securely handle file operations
+    
+    Args:
+        filename: Safe filename (alphanumeric, dots, dashes, spaces)
+        content: File content
+    """
+    safe_path = Path("safe_directory") / filename
+    if not safe_path.parent == Path("safe_directory"):
+        raise ValueError("Invalid path")
+    
+    safe_path.write_text(content)
+    return True
+```
+
+2. Resource Access Control
+```python
+@server.resource("secure://{path}")
+async def get_secure_resource(
+    path: str,
+    ctx: Context
+) -> str:
+    """Access controlled resource
+    
+    Args:
+        path: Resource path
+        ctx: MCP context
+    """
+    if not await check_access(ctx.session, path):
+        raise PermissionError(f"Access denied to {path}")
+    
+    return await load_resource(path)
 ```
 
 ## Best Practices
 
-1. **Documentation**
-   - Always include docstrings for tools and resources
-   - Use Field descriptions for parameters
-   - Document expected input/output formats
-
-2. **Type Hints**
-   - Always use type hints for parameters and return values
-   - Use Pydantic models for complex types
-   - Leverage Annotated types for additional validation
-
-3. **Validation**
-   - Use Pydantic Field for parameter validation
-   - Implement proper error handling
-   - Validate inputs before processing
-
-4. **Resource Naming**
-   - Use clear, descriptive URIs for resources
-   - Follow REST-like patterns when appropriate
-   - Document URI parameters
-
-5. **State Management**
-   - Use appropriate storage for state (files, databases)
+1. Documentation
+   - Use detailed docstrings
+   - Include type hints
+   - Document exceptions and edge cases
+   
+2. Error Handling
+   - Use specific exception types
+   - Provide clear error messages
+   - Handle cleanup in finally blocks
+   
+3. Resource Management
+   - Use context managers
    - Clean up resources properly
-   - Handle concurrent access appropriately
+   - Handle concurrent access
+   
+4. Testing
+   - Write comprehensive tests
+   - Use fixtures for common setup
+   - Test error cases
+   
+5. Security
+   - Validate all inputs
+   - Use proper access controls
+   - Handle sensitive data carefully
 
 ## Common Patterns
 
-### Parameter Validation
+1. Resource Hierarchy
 ```python
-from typing import Annotated
-from pydantic import Field
-
-@mcp.tool()
-def validated_function(
-    required_param: str,
-    optional_param: str = Field(default=""),
-    bounded_param: Annotated[int, Field(ge=0, le=100)] = 50,
-):
-    """Function with validated parameters"""
-    pass
+@server.resource("api://{version}/{endpoint}/{id}")
+def get_api_resource(
+    version: Annotated[str, Field(pattern=r"^v\d+$")],
+    endpoint: str,
+    id: str
+) -> dict:
+    """Access API resource
+    
+    Args:
+        version: API version (e.g., "v1")
+        endpoint: API endpoint
+        id: Resource identifier
+    """
+    return fetch_api_resource(version, endpoint, id)
 ```
 
-### Resource Patterns
+2. Batch Operations
 ```python
-# Single item resource
-@mcp.resource("item://{id}")
-def get_item(id: str) -> dict:
-    pass
-
-# Collection resource
-@mcp.resource("items://")
-def get_items() -> list:
-    pass
-
-# Nested resource
-@mcp.resource("user://{user_id}/items/{item_id}")
-def get_user_item(user_id: str, item_id: str) -> dict:
-    pass
-```
-
-### Async Database Operations
-```python
-@mcp.tool()
-async def db_operation():
-    async with pool.acquire() as conn:
-        result = await conn.fetchrow("SELECT * FROM table")
-        return result
-```
-
-## Error Handling Patterns
-
-```python
-from pydantic import ValidationError
-
-@mcp.tool()
-def safe_tool(input_data: dict) -> dict:
-    try:
-        # Validate input
-        validated = InputModel(**input_data)
-        
-        # Process data
-        result = process_data(validated)
-        
-        return {"status": "success", "data": result}
-    except ValidationError as e:
-        return {"status": "error", "message": "Invalid input", "details": str(e)}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-```
-
-This guide covers the core concepts and patterns found in the FastMCP Python SDK examples. Refer to the official documentation for more detailed information and advanced usage scenarios.
+@server.tool()
+async def batch_process(
+    items: list[dict],
+    batch_size: int = Field(default=100, ge=1, le=1000),
+    ctx: Context
+) -> dict:
+    """Process items in batches
+    
+    Args:
+        items: Items to process
+        batch_size: Size of each batch
+        ctx: MCP
