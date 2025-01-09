@@ -570,10 +570,6 @@ async def batch_process(
         batch_size: Size of each batch
         ctx: MCP
 
-Here's a markdown guide focused on handling async resources with FastMCP:
-
-```markdown
-
 # Handling Async Functions in FastMCP Resources
 
 ## Core Concepts
