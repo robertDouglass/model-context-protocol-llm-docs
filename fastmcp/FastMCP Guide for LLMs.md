@@ -657,5 +657,5 @@ The solution works by:
 4. Returning the final result
 
 This approach maintains FastMCP's event loop while ensuring async operations complete properly.
-```
-s
+
+
