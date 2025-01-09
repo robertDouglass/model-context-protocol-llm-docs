@@ -569,3 +569,96 @@ async def batch_process(
         items: Items to process
         batch_size: Size of each batch
         ctx: MCP
+
+Here's a markdown guide focused on handling async resources with FastMCP:
+
+```markdown
+# Handling Async Functions in FastMCP Resources
+
+## Core Concepts
+
+FastMCP resources must return concrete data rather than coroutines or futures. When working with async functions in FastMCP resources, you need to handle three key challenges:
+
+1. Resources cannot be async functions
+2. The event loop is managed by FastMCP
+3. Async operations must complete before returning
+
+## Solution Pattern
+
+The solution involves creating a thread-based wrapper to run async functions synchronously:
+
+```python
+def run_async_in_thread(async_func):
+    """Run an async function to completion in a separate thread"""
+    def wrapper(*args, **kwargs):
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(lambda: asyncio.run(async_func(*args, **kwargs)))
+            return future.result()
+    return wrapper
+```
+
+## Common Mistakes to Avoid
+
+1. **Using Async Resources**
+   ```python
+   # Wrong - returns a coroutine object
+   @mcp.resource("docs://example")
+   async def example_docs():
+       return await perform_search()
+   ```
+
+2. **Manual Event Loop Management**
+   ```python
+   # Wrong - conflicts with FastMCP's event loop
+   loop = asyncio.get_event_loop()
+   loop.run_until_complete(perform_search())
+   ```
+
+3. **Returning Futures**
+   ```python
+   # Wrong - returns an uncompleted Future
+   future = asyncio.Future()
+   asyncio.create_task(some_async_func())
+   return future
+   ```
+
+## Correct Implementation
+
+1. Create async functions for your core operations:
+   ```python
+   async def perform_search(query: str, limit: int = 5):
+       # Async implementation
+       pass
+   ```
+
+2. Create a synchronous wrapper:
+   ```python
+   sync_perform_search = run_async_in_thread(perform_search)
+   ```
+
+3. Use the synchronous wrapper in resources:
+   ```python
+   @mcp.resource("docs://example")
+   def example_docs():
+       return sync_perform_search("query", 5)
+   ```
+
+## Best Practices
+
+- Keep async functions for core operations
+- Use the thread wrapper pattern for resource implementations
+- Avoid direct event loop manipulation
+- Return concrete data from resources
+- Handle exceptions within async functions
+
+## Technical Details
+
+The solution works by:
+1. Creating a new thread for each async operation
+2. Running a new event loop in that thread
+3. Executing the async function to completion
+4. Returning the final result
+
+This approach maintains FastMCP's event loop while ensuring async operations complete properly.
+```
+s
