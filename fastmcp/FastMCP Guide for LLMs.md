@@ -616,30 +616,91 @@ async def get_secure_resource(
 
 ## Best Practices
 
-1. Documentation
+1. Development Workflow
+   - Always test from command line first
+   - Use Python 3.11 for best compatibility
+   - Write comprehensive tests using fixtures
+   - Test error cases extensively
+
+2. Code Structure & Documentation
+   - Import Context from fastmcp directly
+   - Keep prompts focused and single-purpose
    - Use detailed docstrings
    - Include type hints
    - Document exceptions and edge cases
-   
-2. Error Handling
+
+3. Error Handling
+   - Keep server startup code simple
    - Use specific exception types
    - Provide clear error messages
    - Handle cleanup in finally blocks
-   
-3. Resource Management
+   - Use try/except blocks appropriately
+   - Print errors during development
+
+4. Resource Management
    - Use context managers
    - Clean up resources properly
    - Handle concurrent access
-   
-4. Testing
-   - Write comprehensive tests
-   - Use fixtures for common setup
-   - Test error cases
-   
+   - Let FastMCP handle logging in production
+   - Keep prompts focused and single-purpose
+   - Handle parameter defaults in function body
+
 5. Security
    - Validate all inputs
    - Use proper access controls
    - Handle sensitive data carefully
+
+6. Async Operations
+   - Keep async functions for core operations
+   - Use the thread wrapper pattern for resource implementations
+   - Avoid direct event loop manipulation
+   - Return concrete data from resources
+   - Handle exceptions within async functions
+
+7. Logging & Debugging
+   - Remove any custom logging configuration
+   - Don't create custom loggers for your server
+   - Let FastMCP handle all logging internally
+   - Use simple print statements for debugging if needed
+   - Let FastMCP handle logging in production
+
+8. Prompt Implementation
+   - Keep prompt decorators simple
+   - Accept ctx and parameters arguments
+   - Return a dict with type and content keys
+   - Use markdown for structured output
+   - Handle parameter defaults within the function
+
+## Common Mistakes to Avoid
+
+1. Using Async Resources
+   ```python
+   # Wrong - returns a coroutine object
+   @mcp.resource("docs://example")
+   async def example_docs():
+       return await perform_search()
+   ```
+
+2. Manual Event Loop Management
+   ```python
+   # Wrong - conflicts with FastMCP's event loop
+   loop = asyncio.get_event_loop()
+   loop.run_until_complete(perform_search())
+   ```
+
+3. Returning Futures
+   ```python
+   # Wrong - returns an uncompleted Future
+   future = asyncio.Future()
+   asyncio.create_task(some_async_func())
+   return future
+   ```
+
+4. Prompt-Related Issues
+   - Including template in decorator (not supported)
+   - Missing parameters argument in function
+   - Wrong return type (must be dict with type and content)
+   - Custom logging in prompt handlers
 
 ## Common Patterns
 
@@ -661,35 +722,7 @@ def get_api_resource(
     return fetch_api_resource(version, endpoint, id)
 ```
 
-2. Batch Operations
-```python
-@server.tool()
-async def batch_process(
-    items: list[dict],
-    batch_size: int = Field(default=100, ge=1, le=1000),
-    ctx: Context
-) -> dict:
-    """Process items in batches
-    
-    Args:
-        items: Items to process
-        batch_size: Size of each batch
-        ctx: MCP
-
-# Handling Async Functions in FastMCP Resources
-
-## Core Concepts
-
-FastMCP resources must return concrete data rather than coroutines or futures. When working with async functions in FastMCP resources, you need to handle three key challenges:
-
-1. Resources cannot be async functions
-2. The event loop is managed by FastMCP
-3. Async operations must complete before returning
-
-## Solution Pattern
-
-The solution involves creating a thread-based wrapper to run async functions synchronously:
-
+2. Async Operations Wrapper
 ```python
 def run_async_in_thread(async_func):
     """Run an async function to completion in a separate thread"""
@@ -700,118 +733,17 @@ def run_async_in_thread(async_func):
     return wrapper
 ```
 
-## Common Mistakes to Avoid
-
-1. **Using Async Resources**
-   ```python
-   # Wrong - returns a coroutine object
-   @mcp.resource("docs://example")
-   async def example_docs():
-       return await perform_search()
-   ```
-
-2. **Manual Event Loop Management**
-   ```python
-   # Wrong - conflicts with FastMCP's event loop
-   loop = asyncio.get_event_loop()
-   loop.run_until_complete(perform_search())
-   ```
-
-3. **Returning Futures**
-   ```python
-   # Wrong - returns an uncompleted Future
-   future = asyncio.Future()
-   asyncio.create_task(some_async_func())
-   return future
-   ```
-
-## Correct Implementation
-
-1. Create async functions for your core operations:
-   ```python
-   async def perform_search(query: str, limit: int = 5):
-       # Async implementation
-       pass
-   ```
-
-2. Create a synchronous wrapper:
-   ```python
-   sync_perform_search = run_async_in_thread(perform_search)
-   ```
-
-3. Use the synchronous wrapper in resources:
-   ```python
-   @mcp.resource("docs://example")
-   def example_docs():
-       return sync_perform_search("query", 5)
-   ```
-
-## Best Practices
-
-- Keep async functions for core operations
-- Use the thread wrapper pattern for resource implementations
-- Avoid direct event loop manipulation
-- Return concrete data from resources
-- Handle exceptions within async functions
-
-## Technical Details
-
-The solution works by:
-1. Creating a new thread for each async operation
-2. Running a new event loop in that thread
-3. Executing the async function to completion
-4. Returning the final result
-
-This approach maintains FastMCP's event loop while ensuring async operations complete properly.
-
-## Troubleshooting Common Issues
-
-### Server Connection Issues
-
-If you encounter "Could not attach server" or similar connection issues:
-
-1. Test from command line first
-2. Check Python version compatibility (use 3.9-3.12)
-3. Verify imports (especially `Context` from `fastmcp`)
-4. Remove any custom logging setup
-5. Ensure prompt structure matches examples above
-
-### Logging Issues
-
-If you see logging-related errors:
-
-1. Remove any custom logging configuration
-2. Don't create custom loggers for your server
-3. Let FastMCP handle all logging internally
-4. Use simple print statements for debugging if needed
-
-### Prompt Issues
-
-Common prompt-related problems:
-
-1. Including `template` in decorator (not supported)
-2. Missing `parameters` argument in function
-3. Wrong return type (must be dict with `type` and `content`)
-4. Custom logging in prompt handlers
-
-## Best Practices
-
-1. Development Workflow:
-   - Always test from command line first
-   - Use Python 3.11 for best compatibility
-   - Keep prompt decorators simple
-   - Let FastMCP handle logging
-
-2. Code Structure:
-   - Import Context from fastmcp directly
-   - Keep prompts focused and single-purpose
-   - Handle parameter defaults in function body
-   - Use markdown for structured output
-
-3. Error Handling:
-   - Keep server startup code simple
-   - Use try/except blocks appropriately
-   - Print errors during development
-   - Let FastMCP handle logging in production
-
+3. Prompt Structure
+```python
+@mcp.prompt(
+    name="analyze-data",
+    description="Analyze the provided dataset"
+)
+def analyze_data(ctx: Context, parameters: dict) -> dict:
+    """Process data analysis prompt"""
+    return {
+        "type": "markdown",
+        "content": "Analysis results..."
+    }
+```
 
