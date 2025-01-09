@@ -16,6 +16,7 @@ pip install mcp
 # Optional: Install with all extras
 pip install "mcp[cli,dev,test]"
 ```
+> ⚠️ **Python Version Compatibility**: FastMCP works best with Python 3.9+ but may have issues with Python 3.13+. For best results, use Python 3.11.
 
 ## Core Components
 
@@ -409,6 +410,37 @@ async def multi_stage_operation(ctx: Context) -> dict:
 ```
 
 ## Testing
+
+### Command Line Testing
+
+Before deploying your FastMCP server with Claude Desktop or other LLM interfaces, always test it from the command line:
+
+```bash
+# Activate your virtualenv
+source venv/bin/activate
+
+# Run your server directly
+python your_server.py
+```
+
+This helps identify any immediate issues with imports, syntax, or dependencies.
+
+### Logging Best Practices
+
+FastMCP manages its own logging. Avoid setting up custom logging to prevent conflicts. The built-in logging will show server initialization and request handling:
+
+```python
+# Do NOT add custom logging setup
+# Let FastMCP handle logging internally
+
+# Simple server startup
+if __name__ == "__main__":
+    try:
+        mcp.run()
+    except Exception as e:
+        print(f"Server failed to start: {str(e)}")
+        raise
+```
 
 ### Unit Tests
 
