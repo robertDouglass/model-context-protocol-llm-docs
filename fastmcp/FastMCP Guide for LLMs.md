@@ -573,6 +573,7 @@ async def batch_process(
 Here's a markdown guide focused on handling async resources with FastMCP:
 
 ```markdown
+
 # Handling Async Functions in FastMCP Resources
 
 ## Core Concepts
